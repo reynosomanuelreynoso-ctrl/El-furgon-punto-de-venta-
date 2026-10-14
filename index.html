@@ -389,5 +389,224 @@ $("guardarVenta").addEventListener("click",() => {
 });
 mostrarTodo();
 </script>
+  <script>
+(() => {
+  const seccion = document.createElement("section");
+  const titulo = document.createElement("h2");
+  titulo.textContent = "Copias de respaldo";
+
+  const texto = document.createElement("p");
+  texto.textContent =
+    "Descarga tus productos y ventas. Puedes restaurarlos en otro equipo. " +
+    "Restaurar reemplaza los datos de este navegador; no los combina.";
+
+  const descargar = document.createElement("button");
+  descargar.type = "button";
+  descargar.textContent = "Descargar respaldo";
+
+  const etiqueta = document.createElement("label");
+  etiqueta.textContent = "Seleccionar respaldo para restaurar";
+
+  const archivo = document.createElement("input");
+  archivo.type = "file";
+  archivo.accept = ".json,application/json";
+  etiqueta.append(archivo);
+
+  const resultado = document.createElement("p");
+  resultado.setAttribute("role", "status");
+
+  seccion.append(titulo, texto, descargar, etiqueta, resultado);
+  document.querySelector("main").append(seccion);
+
+  function exportar(datos, prefijo) {
+    const copia = {
+      aplicacion: "El Furgon PDV",
+      version: 2,
+      fecha: new Date().toISOString(),
+      datos
+    };
+    const blob = new Blob(
+      [JSON.stringify(copia, null, 2)],
+      {type: "application/json"}
+    );
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement("a");
+    const fecha = new Date().toISOString().replace(/[:.]/g, "-");
+    enlace.href = url;
+    enlace.download = prefijo + "-" + fecha + ".json";
+    document.body.append(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  function validar(copia) {
+    if (
+      !copia ||
+      copia.aplicacion !== "El Furgon PDV" ||
+      copia.version !== 2 ||
+      !copia.datos ||
+      !Array.isArray(copia.datos.productos) ||
+      !Array.isArray(copia.datos.ventas)
+    ) {
+      throw new Error("El archivo no es un respaldo compatible.");
+    }
+
+    const datos = copia.datos;
+    const codigos = new Set();
+
+    const productos = datos.productos.map(p => {
+      if (
+        !productoValido(p) ||
+        p.codigo.length > 40 ||
+        p.nombre.length > 120
+      ) {
+        throw new Error("El respaldo contiene un producto inválido.");
+      }
+      const codigo = p.codigo.trim();
+      const identificador = codigo.toLowerCase();
+      if (codigos.has(identificador)) {
+        throw new Error("Hay códigos de productos repetidos.");
+      }
+      codigos.add(identificador);
+      return {
+        codigo,
+        nombre: p.nombre.trim(),
+        costo: p.costo,
+        precio: p.precio,
+        stock: p.stock
+      };
+    });
+
+    const ventas = datos.ventas.map((v, indice) => {
+      if (
+        !v ||
+        v.numero !== indice + 1 ||
+        typeof v.fecha !== "string" ||
+        !Number.isFinite(Date.parse(v.fecha)) ||
+        !["Efectivo", "Transferencia", "Tarjeta"].includes(v.pago) ||
+        !Array.isArray(v.lineas) ||
+        v.lineas.length === 0
+      ) {
+        throw new Error("El historial contiene una venta inválida.");
+      }
+
+      const lineas = v.lineas.map(l => {
+        if (
+          !l ||
+          typeof l.codigo !== "string" ||
+          !l.codigo.trim() ||
+          typeof l.nombre !== "string" ||
+          !l.nombre.trim() ||
+          !valido(l.cantidad) ||
+          l.cantidad === 0 ||
+          !valido(l.precio) ||
+          !Number.isSafeInteger(l.subtotal) ||
+          l.subtotal < 0 ||
+          l.subtotal !== Math.round(l.precio * l.cantidad / 100)
+        ) {
+          throw new Error("Hay un detalle de venta inválido.");
+        }
+        return {
+          codigo: l.codigo,
+          nombre: l.nombre,
+          cantidad: l.cantidad,
+          precio: l.precio,
+          subtotal: l.subtotal
+        };
+      });
+
+      const total = lineas.reduce((s, l) => s + l.subtotal, 0);
+      if (!Number.isSafeInteger(total) || total !== v.total) {
+        throw new Error("El total de una venta no coincide.");
+      }
+
+      return {
+        numero: v.numero,
+        fecha: v.fecha,
+        pago: v.pago,
+        lineas,
+        total
+      };
+    });
+
+    return {productos, ventas};
+  }
+
+  descargar.addEventListener("click", () => {
+    if (!lecturaCorrecta) {
+      resultado.textContent =
+        "Primero hay que recuperar los datos del navegador.";
+      return;
+    }
+    try {
+      exportar(estado, "respaldo-el-furgon");
+      resultado.textContent =
+        "Descarga solicitada. Comprueba que el archivo esté en Descargas.";
+    } catch {
+      resultado.textContent = "No se pudo generar el respaldo.";
+    }
+  });
+
+  archivo.addEventListener("change", async () => {
+    const seleccionado = archivo.files[0];
+    if (!seleccionado) return;
+
+    try {
+      if (!lecturaCorrecta) {
+        throw new Error(
+          "Primero hay que recuperar los datos actuales del navegador."
+        );
+      }
+      if (seleccionado.size > 10 * 1024 * 1024) {
+        throw new Error("El archivo supera el límite de 10 MB.");
+      }
+
+      const copia = JSON.parse(await seleccionado.text());
+      const datos = validar(copia);
+
+      const aceptar = window.confirm(
+        "El respaldo contiene " + datos.productos.length +
+        " productos y " + datos.ventas.length + " ventas.\n\n" +
+        "Reemplazará los " + estado.productos.length +
+        " productos y " + estado.ventas.length +
+        " ventas de este navegador.\n\n" +
+        "Descarga antes un respaldo de tus datos actuales.\n" +
+        "¿Quieres restaurar este archivo?"
+      );
+
+      if (!aceptar) {
+        resultado.textContent = "Restauración cancelada.";
+        return;
+      }
+
+      localStorage.setItem(
+        "furgon-antes-de-restaurar",
+        JSON.stringify({
+          fecha: new Date().toISOString(),
+          datos: estado
+        })
+      );
+
+      if (!guardar(datos)) {
+        throw new Error("No se pudo guardar la restauración.");
+      }
+
+      carrito = [];
+      limpiarFormulario();
+      mostrarTodo();
+      resultado.textContent =
+        "Respaldo restaurado: " + datos.productos.length +
+        " productos y " + datos.ventas.length + " ventas.";
+      avisar("Restauración completada.");
+    } catch (error) {
+      resultado.textContent =
+        "No se restauró el archivo. " + error.message;
+    } finally {
+      archivo.value = "";
+    }
+  });
+})();
+</script>
 </body>
 </html>
