@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catálogo · El Furgón</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f1f4f8;color:#172744;font-family:Arial,sans-serif}
+header{background:#172744;color:white;padding:25px}
+header h1{margin:0;color:#ffd447;font-size:26px}
+main{max-width:900px;margin:auto;padding:20px}
+section{background:white;padding:20px;border-radius:14px;margin-bottom:20px}
+label{display:block;margin:14px 0}
+input,button{width:100%;padding:13px;font-size:16px;border-radius:8px}
+input{border:1px solid #bdc7d5;margin-top:6px}
+button{background:#ffd447;color:#172744;border:0;font-weight:bold;cursor:pointer}
+.producto{border-bottom:1px solid #ddd;padding:16px 0}
+.producto h3{margin:0 0 8px}
+.producto p{margin:6px 0}
+small{color:#526078}
+#mensaje{color:#225c37}
+</style>
+</head>
+<body>
+<header>
+<h1>FERRETERÍA EL FURGÓN</h1>
+<p>Catálogo de productos · Prueba</p>
+</header>
+<main>
+<section>
+<h2>Agregar producto</h2>
+<form id="formulario">
+<label>Código
+<input id="codigo" required maxlength="40">
+</label>
+<label>Nombre del producto
+<input id="nombre" required maxlength="120">
+</label>
+<label>Costo en RD$
+<input id="costo" type="number" min="0" step="0.01" required>
+</label>
+<label>Precio de venta en RD$
+<input id="precio" type="number" min="0" step="0.01" required>
+</label>
+<label>Cantidad disponible
+<input id="cantidad" type="number" min="0" step="0.01" required>
+</label>
+<button type="submit">Guardar producto</button>
+<p id="mensaje" role="status"></p>
+</form>
+</section>
+<section>
+<h2>Mis productos</h2>
+<label>Buscar por nombre o código
+<input id="buscar" type="search" placeholder="Escribe aquí…">
+</label>
+<div id="lista"></div>
+</section>
+<small>Datos guardados solo en este navegador. Borrar sus datos puede eliminar el catálogo. Usa productos de prueba.</small>
+</main>
+<script>
+const campo = id => document.getElementById(id);
+const clave = "furgon-catalogo-v1";
+let productos = [];
+try {
+  productos = JSON.parse(localStorage.getItem(clave) || "[]");
+  if (!Array.isArray(productos)) productos = [];
+} catch {
+  campo("mensaje").textContent = "No se pudieron leer los datos guardados.";
+}
+const dinero = valor => "RD$ " + Number(valor).toLocaleString(
+  "es-DO", {minimumFractionDigits:2, maximumFractionDigits:2}
+);
+function mostrar() {
+  const texto = campo("buscar").value.trim().toLocaleLowerCase();
+  const resultados = productos.filter(p =>
+    (p.nombre + " " + p.codigo).toLocaleLowerCase().includes(texto)
+  );
+  campo("lista").replaceChildren();
+  if (!resultados.length) {
+    campo("lista").textContent = "No hay productos para mostrar.";
+  }
+  resultados.forEach(p => {
+    const tarjeta = document.createElement("div");
+    tarjeta.className = "producto";
+    const titulo = document.createElement("h3");
+    titulo.textContent = p.nombre;
+    tarjeta.append(titulo);
+    [
+      "Código: " + p.codigo,
+      "Costo: " + dinero(p.costo),
+      "Precio de venta: " + dinero(p.precio),
+      "Disponible: " + p.cantidad
+    ].forEach(texto => {
+      const linea = document.createElement("p");
+      linea.textContent = texto;
+      tarjeta.append(linea);
+    });
+    campo("lista").append(tarjeta);
+  });
+}
+campo("formulario").addEventListener("submit", evento => {
+  evento.preventDefault();
+  const producto = {
+    codigo: campo("codigo").value.trim(),
+    nombre: campo("nombre").value.trim(),
+    costo: Number(campo("costo").value),
+    precio: Number(campo("precio").value),
+    cantidad: Number(campo("cantidad").value)
+  };
+  if (!producto.codigo || !producto.nombre) {
+    campo("mensaje").textContent = "Escribe el código y el nombre.";
+    return;
+  }
+  if (productos.some(p =>
+    p.codigo.toLowerCase() === producto.codigo.toLowerCase()
+  )) {
+    campo("mensaje").textContent = "Ese código ya existe.";
+    return;
+  }
+  const nuevos = [...productos, producto];
+  try {
+    localStorage.setItem(clave, JSON.stringify(nuevos));
+    productos = nuevos;
+    campo("formulario").reset();
+    campo("mensaje").textContent = "Producto guardado.";
+    mostrar();
+  } catch {
+    campo("mensaje").textContent = "No se pudo guardar. Revisa el almacenamiento del navegador.";
+  }
+});
+campo("buscar").addEventListener("input", mostrar);
+mostrar();
+</script>
+</body>
+</html>
