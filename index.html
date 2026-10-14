@@ -756,5 +756,128 @@ mostrarTodo();
   agregarBotones();
 })();
 </script>
+  <script>
+(() => {
+  if (document.getElementById("efectivoRecibido")) return;
+
+  const pago = $("pago");
+  const guardarVenta = $("guardarVenta");
+  const bloque = document.createElement("div");
+
+  const etiqueta = document.createElement("label");
+  etiqueta.htmlFor = "efectivoRecibido";
+  etiqueta.textContent = "Efectivo recibido en RD$";
+
+  const recibido = document.createElement("input");
+  recibido.id = "efectivoRecibido";
+  recibido.type = "number";
+  recibido.min = "0";
+  recibido.max = "99999999";
+  recibido.step = "0.01";
+  recibido.inputMode = "decimal";
+  recibido.placeholder = "Ejemplo: 100.00";
+
+  const resultado = document.createElement("p");
+  resultado.setAttribute("aria-live", "polite");
+  resultado.style.fontSize = "22px";
+  resultado.style.fontWeight = "bold";
+
+  bloque.append(etiqueta, recibido, resultado);
+  guardarVenta.before(bloque);
+
+  function totalActual() {
+    return lineasVenta().reduce(
+      (suma, linea) => suma + linea.subtotal, 0
+    );
+  }
+
+  function montoRecibido() {
+    if (
+      recibido.value.trim() === "" ||
+      !recibido.validity.valid
+    ) return null;
+
+    const monto = Math.round(Number(recibido.value) * 100);
+    return Number.isSafeInteger(monto) && monto >= 0
+      ? monto : null;
+  }
+
+  function actualizarCambio() {
+    const efectivo = pago.value === "Efectivo";
+    bloque.hidden = !efectivo;
+    recibido.disabled = !efectivo;
+
+    if (!efectivo) return;
+
+    if (!carrito.length) {
+      resultado.textContent = "Agrega productos a la venta.";
+      return;
+    }
+
+    const monto = montoRecibido();
+
+    if (monto === null) {
+      resultado.textContent = "Escribe el efectivo recibido.";
+      return;
+    }
+
+    const diferencia = monto - totalActual();
+
+    resultado.textContent = diferencia < 0
+      ? "Faltan: " + dinero(-diferencia)
+      : "Cambio a devolver: " + dinero(diferencia);
+
+    resultado.style.color = diferencia < 0
+      ? "#b42318" : "#172744";
+  }
+
+  recibido.addEventListener("input", actualizarCambio);
+
+  pago.addEventListener("change", () => {
+    recibido.value = "";
+    actualizarCambio();
+  });
+
+  const carritoOriginal = mostrarCarrito;
+  mostrarCarrito = function() {
+    carritoOriginal();
+    actualizarCambio();
+  };
+
+  guardarVenta.addEventListener("click", evento => {
+    if (pago.value !== "Efectivo" || !carrito.length) return;
+
+    const monto = montoRecibido();
+
+    if (monto === null || monto < totalActual()) {
+      evento.preventDefault();
+      evento.stopImmediatePropagation();
+
+      avisar(monto === null
+        ? "Escribe un monto válido de efectivo recibido."
+        : "El efectivo recibido no alcanza para esta venta.");
+
+      recibido.focus();
+    }
+  }, true);
+
+  const guardarOriginal = guardar;
+  guardar = function(nuevo) {
+    const esVentaNueva = nuevo.ventas.length > estado.ventas.length;
+    const correcto = guardarOriginal(nuevo);
+
+    if (correcto && esVentaNueva) recibido.value = "";
+
+    return correcto;
+  };
+
+  $("vaciar").addEventListener("click", () => {
+    recibido.value = "";
+    actualizarCambio();
+  });
+
+  actualizarCambio();
+})();
+</script>
 </body>
 </html>
