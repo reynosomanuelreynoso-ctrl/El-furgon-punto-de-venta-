@@ -1195,6 +1195,124 @@ mostrarTodo();
 
   actualizarResumen();
 })();
+</script
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(() => {
+  if (document.getElementById("conexionCuenta")) return;
+
+  const seccion = document.createElement("section");
+  seccion.id = "conexionCuenta";
+  seccion.innerHTML = `
+    <h2>Cuenta del personal</h2>
+    <p>Prueba de conexión. Productos y ventas siguen
+    guardándose en este navegador.</p>
+    <form id="accesoPersonal">
+      <label>Correo electrónico
+        <input id="correoPersonal" type="email"
+          autocomplete="username" required>
+      </label>
+      <label>Contraseña del usuario
+        <input id="clavePersonal" type="password"
+          autocomplete="current-password" required>
+      </label>
+      <button id="entrarPersonal" type="submit">
+        Iniciar sesión
+      </button>
+    </form>
+    <p id="estadoPersonal" role="status"></p>
+    <button id="salirPersonal" type="button"
+      class="secundario" hidden>Cerrar sesión</button>
+  `;
+  document.querySelector("main").prepend(seccion);
+
+  const obtener = id => document.getElementById(id);
+  const formulario = obtener("accesoPersonal");
+  const mensaje = obtener("estadoPersonal");
+  const entrar = obtener("entrarPersonal");
+  const salir = obtener("salirPersonal");
+
+  if (!window.supabase) {
+    mensaje.textContent =
+      "No se pudo cargar la conexión. Recarga la página.";
+    entrar.disabled = true;
+    return;
+  }
+
+  const cliente = window.supabase.createClient(
+    "https://iexixzfppaqrasasjjmg.supabase.co",
+    "sb_publishable_vWod3cy0ppQY6PS0Q9t8jg__kEm2OQt",
+    {
+      auth: {
+        persistSession: false,
+        detectSessionInUrl: false,
+        autoRefreshToken: true
+      }
+    }
+  );
+
+  formulario.addEventListener("submit", async evento => {
+    evento.preventDefault();
+    entrar.disabled = true;
+    mensaje.textContent = "Comprobando tu cuenta…";
+
+    try {
+      const {data, error} =
+        await cliente.auth.signInWithPassword({
+          email: obtener("correoPersonal").value.trim(),
+          password: obtener("clavePersonal").value
+        });
+
+      if (error) throw error;
+
+      const respuesta = await cliente
+        .from("pdv_perfiles")
+        .select("nombre,rol,activo")
+        .eq("usuario_id", data.user.id)
+        .maybeSingle();
+
+      if (respuesta.error) throw respuesta.error;
+
+      const perfil = respuesta.data;
+      if (!perfil || !perfil.activo) {
+        throw new Error(
+          "Tu cuenta no tiene un perfil activo asignado."
+        );
+      }
+
+      mensaje.textContent =
+        "Conexión correcta. Bienvenido, " + perfil.nombre +
+        ". Rol: " + perfil.rol +
+        ". La conexión de productos y ventas está pendiente.";
+
+      formulario.hidden = true;
+      salir.hidden = false;
+    } catch (error) {
+      await cliente.auth.signOut().catch(() => {});
+      mensaje.textContent =
+        "No se pudo completar el acceso: " + error.message;
+    } finally {
+      obtener("clavePersonal").value = "";
+      entrar.disabled = false;
+    }
+  });
+
+  salir.addEventListener("click", async () => {
+    salir.disabled = true;
+    try {
+      const {error} = await cliente.auth.signOut();
+      if (error) throw error;
+      formulario.hidden = false;
+      salir.hidden = true;
+      mensaje.textContent = "Sesión cerrada.";
+    } catch {
+      mensaje.textContent =
+        "No se pudo cerrar la sesión. Inténtalo otra vez.";
+    } finally {
+      salir.disabled = false;
+    }
+  });
+})();
 </script>
 </body>
 </html>
