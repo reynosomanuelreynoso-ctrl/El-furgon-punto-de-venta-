@@ -1250,7 +1250,167 @@ mostrarTodo();
       }
     }
   );
+  // Catálogo conectado a Supabase.
+  const nube = document.createElement("section");
+  nube.hidden = true;
+  nube.innerHTML = `
+    <h2>Productos en Supabase · Prueba</h2>
+    <p>Estos productos se guardan en la nube.
+    Las ventas todavía usan el catálogo anterior.</p>
+    <form id="formProductoNube">
+      <label>Código
+        <input id="codigoNube" maxlength="40" required>
+      </label>
+      <label>Nombre
+        <input id="nombreNube" maxlength="120" required>
+      </label>
+      <label>Costo en RD$
+        <input id="costoNube" type="number" min="0"
+          max="99999999" step="0.01" required>
+      </label>
+      <label>Precio de venta en RD$
+        <input id="precioNube" type="number" min="0"
+          max="99999999" step="0.01" required>
+      </label>
+      <label>Existencia inicial
+        <input id="stockNube" type="number" min="0"
+          max="99999999" step="0.01" required>
+      </label>
+      <button id="guardarNube" type="submit">
+        Guardar producto en Supabase
+      </button>
+    </form>
+    <button id="consultarNube" type="button"
+      class="secundario">Actualizar lista</button>
+    <p id="mensajeNube" role="status"></p>
+    <div id="listaNube"></div>
+  `;
+  seccion.after(nube);
 
+  const formNube = obtener("formProductoNube");
+  const mensajeNube = obtener("mensajeNube");
+  const listaNube = obtener("listaNube");
+  const guardarNube = obtener("guardarNube");
+  let revisionNube = 0;
+
+  function limpiarNube() {
+    nube.hidden = true;
+    listaNube.replaceChildren();
+    formNube.reset();
+    mensajeNube.textContent = "";
+  }
+
+  async function cargarNube() {
+    const revision = ++revisionNube;
+    limpiarNube();
+
+    try {
+      const usuario = await cliente.auth.getUser();
+      if (usuario.error || !usuario.data.user) return;
+
+      const perfil = await cliente.from("pdv_perfiles")
+        .select("rol,activo")
+        .eq("usuario_id", usuario.data.user.id)
+        .maybeSingle();
+
+      if (perfil.error) throw perfil.error;
+      if (!perfil.data?.activo ||
+          perfil.data.rol !== "administrador") return;
+
+      if (revision !== revisionNube) return;
+      nube.hidden = false;
+
+      const respuesta = await cliente.from("pdv_productos")
+        .select("id,codigo,nombre,precio,stock,pdv_costos(costo)")
+        .order("codigo")
+        .limit(100);
+
+      if (respuesta.error) throw respuesta.error;
+      if (revision !== revisionNube) return;
+
+      const productos = respuesta.data;
+      mensajeNube.textContent = productos.length
+        ? "Productos guardados en Supabase (hasta 100)."
+        : "Todavía no hay productos en Supabase.";
+
+      for (const producto of productos) {
+        const fila = document.createElement("div");
+        fila.className = "fila";
+
+        const nombre = document.createElement("h3");
+        nombre.textContent =
+          producto.codigo + " · " + producto.nombre;
+
+        const detalle = document.createElement("p");
+        detalle.textContent =
+          "Precio: " + dinero(producto.precio) +
+          " · Disponible: " + unidades(producto.stock);
+
+        const costo = document.createElement("p");
+        const datosCosto = Array.isArray(producto.pdv_costos)
+          ? producto.pdv_costos[0] : producto.pdv_costos;
+        costo.textContent = datosCosto
+          ? "Costo: " + dinero(datosCosto.costo)
+          : "Costo pendiente.";
+
+        fila.append(nombre, detalle, costo);
+        listaNube.append(fila);
+      }
+    } catch (error) {
+      if (revision !== revisionNube) return;
+      nube.hidden = false;
+      mensajeNube.textContent =
+        "No se pudo consultar el catálogo: " + error.message;
+    }
+  }
+
+  formNube.addEventListener("submit", async evento => {
+    evento.preventDefault();
+    guardarNube.disabled = true;
+    mensajeNube.textContent = "Guardando en Supabase…";
+
+    try {
+      const centesimas = id =>
+        Math.round(Number(obtener(id).value) * 100);
+
+      const datos = {
+        p_codigo: obtener("codigoNube").value.trim(),
+        p_nombre: obtener("nombreNube").value.trim(),
+        p_precio: centesimas("precioNube"),
+        p_stock: centesimas("stockNube"),
+        p_costo: centesimas("costoNube")
+      };
+
+      if (!datos.p_codigo || !datos.p_nombre ||
+          ![datos.p_precio, datos.p_stock, datos.p_costo]
+            .every(valido)) {
+        throw new Error("Revisa los datos del producto.");
+      }
+
+      const respuesta = await cliente.rpc(
+        "pdv_crear_producto", datos
+      );
+      if (respuesta.error) throw respuesta.error;
+
+      await cargarNube();
+    } catch (error) {
+      mensajeNube.textContent =
+        "No se confirmó el guardado: " + error.message +
+        ". Actualiza la lista antes de volver a intentarlo.";
+    } finally {
+      guardarNube.disabled = false;
+    }
+  });
+
+  obtener("consultarNube").addEventListener(
+    "click", cargarNube
+  );
+
+  cliente.auth.onAuthStateChange((evento, sesion) => {
+    ++revisionNube;
+    limpiarNube();
+    if (sesion) setTimeout(cargarNube, 0);
+  });
   formulario.addEventListener("submit", async evento => {
     evento.preventDefault();
     entrar.disabled = true;
