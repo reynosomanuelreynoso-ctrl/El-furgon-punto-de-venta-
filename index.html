@@ -1296,7 +1296,7 @@ mostrarTodo();
   function limpiarNube() {
     nube.hidden = true;
     listaNube.replaceChildren();
-    formNube.reset();
+  cancelarEdicionNube();
     mensajeNube.textContent = "";
   }
 
@@ -1336,7 +1336,36 @@ mostrarTodo();
       for (const producto of productos) {
         const fila = document.createElement("div");
         fila.className = "fila";
+        const editarNube = document.createElement("button");
+        editarNube.type = "button";
+        editarNube.className = "secundario";
+        editarNube.textContent = "Editar producto";
 
+        editarNube.addEventListener("click", () => {
+          if (guardarNube.disabled) return;
+
+          productoEditadoNube = producto.id;
+          obtener("codigoNube").value = producto.codigo;
+          obtener("codigoNube").readOnly = true;
+          obtener("nombreNube").value = producto.nombre;
+          obtener("precioNube").value =
+            (producto.precio / 100).toFixed(2);
+          obtener("stockNube").value =
+            (producto.stock / 100).toFixed(2);
+          obtener("stockNube").disabled = true;
+          obtener("costoNube").value = datosCosto
+            ? (datosCosto.costo / 100).toFixed(2) : "";
+
+          guardarNube.textContent = "Guardar cambios en Supabase";
+          mensajeNube.textContent =
+            "Editando " + producto.codigo +
+            ". La existencia se conserva.";
+
+          formNube.scrollIntoView({behavior: "smooth"});
+          obtener("nombreNube").focus();
+        });
+
+        fila.append(editarNube);
         const nombre = document.createElement("h3");
         nombre.textContent =
           producto.codigo + " · " + producto.nombre;
@@ -1354,6 +1383,36 @@ mostrarTodo();
           : "Costo pendiente.";
 
         fila.append(nombre, detalle, costo);
+                const editarNube = document.createElement("button");
+        editarNube.type = "button";
+        editarNube.className = "secundario";
+        editarNube.textContent = "Editar producto";
+
+        editarNube.addEventListener("click", () => {
+          if (guardarNube.disabled) return;
+
+          productoEditadoNube = producto.id;
+          obtener("codigoNube").value = producto.codigo;
+          obtener("codigoNube").readOnly = true;
+          obtener("nombreNube").value = producto.nombre;
+          obtener("precioNube").value =
+            (producto.precio / 100).toFixed(2);
+          obtener("stockNube").value =
+            (producto.stock / 100).toFixed(2);
+          obtener("stockNube").disabled = true;
+          obtener("costoNube").value = datosCosto
+            ? (datosCosto.costo / 100).toFixed(2) : "";
+
+          guardarNube.textContent = "Guardar cambios en Supabase";
+          mensajeNube.textContent =
+            "Editando " + producto.codigo +
+            ". La existencia se conserva.";
+
+          formNube.scrollIntoView({behavior: "smooth"});
+          obtener("nombreNube").focus();
+        });
+
+        fila.append(editarNube);
         listaNube.append(fila);
       }
     } catch (error) {
@@ -1387,9 +1446,16 @@ mostrarTodo();
         throw new Error("Revisa los datos del producto.");
       }
 
-      const respuesta = await cliente.rpc(
-        "pdv_crear_producto", datos
-      );
+const respuesta = productoEditadoNube
+  ? await cliente.rpc("pdv_editar_producto", {
+      p_id: productoEditadoNube,
+      p_nombre: datos.p_nombre,
+      p_precio: datos.p_precio,
+      p_costo: datos.p_costo
+    })
+  : await cliente.rpc("pdv_crear_producto", datos);      
+  
+      
       if (respuesta.error) throw respuesta.error;
 
       await cargarNube();
