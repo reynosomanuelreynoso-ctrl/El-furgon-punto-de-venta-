@@ -2,136 +2,392 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Catálogo · El Furgón</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>El Furgón · Punto de venta</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#f1f4f8;color:#172744;font-family:Arial,sans-serif}
-header{background:#172744;color:white;padding:25px}
-header h1{margin:0;color:#ffd447;font-size:26px}
-main{max-width:900px;margin:auto;padding:20px}
-section{background:white;padding:20px;border-radius:14px;margin-bottom:20px}
-label{display:block;margin:14px 0}
-input,button{width:100%;padding:13px;font-size:16px;border-radius:8px}
-input{border:1px solid #bdc7d5;margin-top:6px}
-button{background:#ffd447;color:#172744;border:0;font-weight:bold;cursor:pointer}
-.producto{border-bottom:1px solid #ddd;padding:16px 0}
-.producto h3{margin:0 0 8px}
-.producto p{margin:6px 0}
+header{background:#172744;color:white;padding:24px}
+header h1{margin:0;color:#ffd447;font-size:25px}
+main{max-width:1000px;margin:auto;padding:16px}
+section{background:white;padding:20px;border-radius:14px;margin-bottom:18px}
+label{display:block;margin:12px 0}
+input,select,button{width:100%;padding:12px;font-size:16px;border-radius:8px}
+input,select{border:1px solid #bdc7d5;margin-top:6px;background:white;color:#172744}
+button{background:#ffd447;color:#172744;border:0;font-weight:bold;cursor:pointer;margin:6px 0}
+button.secundario{background:#e8edf4}
+button:disabled{opacity:.5;cursor:default}
+.fila{border-bottom:1px solid #ddd;padding:15px 0}
+.fila h3{margin:0 0 8px}
+.fila p{margin:7px 0}
+.aviso{padding:14px;background:#fff4ce;border-radius:10px}
+#mensaje{position:sticky;top:0;background:#172744;color:white;padding:14px;border-radius:10px;z-index:2}
+#mensaje:empty{display:none}
+.total{font-size:23px;font-weight:bold}
 small{color:#526078}
-#mensaje{color:#225c37}
 </style>
 </head>
 <body>
 <header>
 <h1>FERRETERÍA EL FURGÓN</h1>
-<p>Catálogo de productos · Prueba</p>
+<p>Punto de venta · Versión de prueba</p>
 </header>
 <main>
+<p class="aviso">Prueba con datos ficticios. Los datos se guardan
+solo en este navegador. Comprobantes sin validez fiscal.</p>
+<p id="mensaje" role="status"></p>
+
 <section>
-<h2>Agregar producto</h2>
+<h2 id="tituloFormulario">Agregar producto</h2>
 <form id="formulario">
 <label>Código
 <input id="codigo" required maxlength="40">
 </label>
-<label>Nombre del producto
+<label>Nombre
 <input id="nombre" required maxlength="120">
 </label>
 <label>Costo en RD$
-<input id="costo" type="number" min="0" step="0.01" required>
+<input id="costo" type="number" min="0" max="99999999"
+step="0.01" required>
 </label>
 <label>Precio de venta en RD$
-<input id="precio" type="number" min="0" step="0.01" required>
+<input id="precio" type="number" min="0" max="99999999"
+step="0.01" required>
 </label>
 <label>Cantidad disponible
-<input id="cantidad" type="number" min="0" step="0.01" required>
+<input id="existencia" type="number" min="0"
+max="99999999" step="0.01" required>
 </label>
 <button type="submit">Guardar producto</button>
-<p id="mensaje" role="status"></p>
+<button id="cancelar" type="button" class="secundario"
+hidden>Cancelar edición</button>
 </form>
 </section>
+
 <section>
-<h2>Mis productos</h2>
+<h2>Catálogo</h2>
 <label>Buscar por nombre o código
 <input id="buscar" type="search" placeholder="Escribe aquí…">
 </label>
-<div id="lista"></div>
+<div id="catalogo"></div>
 </section>
-<small>Datos guardados solo en este navegador. Borrar sus datos puede eliminar el catálogo. Usa productos de prueba.</small>
+
+<section>
+<h2>Registrar venta</h2>
+<form id="agregarVenta">
+<label>Producto
+<select id="productoVenta" required></select>
+</label>
+<label>Cantidad a vender
+<input id="cantidadVenta" type="number" min="0.01"
+max="99999999" step="0.01" value="1" required>
+</label>
+<button type="submit">Agregar a la venta</button>
+</form>
+<div id="carrito"></div>
+<p id="total" class="total"></p>
+<label>Forma de pago
+<select id="pago">
+<option>Efectivo</option>
+<option>Transferencia</option>
+<option>Tarjeta</option>
+</select>
+</label>
+<button id="guardarVenta" type="button">Guardar venta</button>
+<button id="vaciar" type="button" class="secundario">
+Vaciar venta</button>
+</section>
+
+<section>
+<h2>Historial de ventas</h2>
+<div id="historial"></div>
+</section>
+<small>Esta prueba no incluye impuestos, devoluciones,
+créditos ni sincronización entre equipos.
+Borrar los datos del navegador puede eliminar los registros.</small>
 </main>
+
 <script>
-const campo = id => document.getElementById(id);
-const clave = "furgon-catalogo-v1";
-let productos = [];
-try {
-  productos = JSON.parse(localStorage.getItem(clave) || "[]");
-  if (!Array.isArray(productos)) productos = [];
-} catch {
-  campo("mensaje").textContent = "No se pudieron leer los datos guardados.";
-}
-const dinero = valor => "RD$ " + Number(valor).toLocaleString(
+"use strict";
+const $ = id => document.getElementById(id);
+const clave = "furgon-pdv-v2";
+let estado = {productos:[], ventas:[]};
+let carrito = [];
+let editando = null;
+let lecturaCorrecta = true;
+const dinero = n => "RD$ " + (n / 100).toLocaleString(
   "es-DO", {minimumFractionDigits:2, maximumFractionDigits:2}
 );
-function mostrar() {
-  const texto = campo("buscar").value.trim().toLocaleLowerCase();
-  const resultados = productos.filter(p =>
-    (p.nombre + " " + p.codigo).toLocaleLowerCase().includes(texto)
+const unidades = n => (n / 100).toLocaleString("es-DO");
+const convertir = valor => Math.round(Number(valor) * 100);
+const normalizar = texto => texto.toLocaleLowerCase()
+  .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+function avisar(texto) { $("mensaje").textContent = texto; }
+function valido(n) {
+  return Number.isSafeInteger(n) && n >= 0 && n <= 9999999900;
+}
+function productoValido(p) {
+  return p && typeof p.codigo === "string" &&
+    p.codigo.trim() && typeof p.nombre === "string" &&
+    p.nombre.trim() && valido(p.costo) &&
+    valido(p.precio) && valido(p.stock);
+}
+try {
+  const guardado = localStorage.getItem(clave);
+  if (guardado) {
+    const datos = JSON.parse(guardado);
+    if (!datos || !Array.isArray(datos.productos) ||
+        !datos.productos.every(productoValido) ||
+        !Array.isArray(datos.ventas)) {
+      throw new Error("Datos inválidos");
+    }
+    estado = datos;
+  } else {
+    const anteriores = JSON.parse(
+      localStorage.getItem("furgon-catalogo-v1") || "[]"
+    );
+    if (!Array.isArray(anteriores)) throw new Error("Catálogo inválido");
+    estado.productos = anteriores.map(p => ({
+      codigo:p.codigo, nombre:p.nombre,
+      costo:convertir(p.costo), precio:convertir(p.precio),
+      stock:convertir(p.cantidad)
+    }));
+    if (!estado.productos.every(productoValido)) {
+      throw new Error("Producto inválido");
+    }
+  }
+} catch {
+  lecturaCorrecta = false;
+  avisar("No se pudieron leer los datos. La edición está bloqueada para evitar sobrescribirlos.");
+}
+function guardar(nuevo) {
+  if (!lecturaCorrecta) {
+    avisar("Primero hay que recuperar los datos guardados.");
+    return false;
+  }
+  try {
+    localStorage.setItem(clave, JSON.stringify(nuevo));
+    estado = nuevo;
+    return true;
+  } catch {
+    avisar("No se pudo guardar. No se ha registrado ningún cambio.");
+    return false;
+  }
+}
+function elemento(tipo,texto) {
+  const nodo = document.createElement(tipo);
+  nodo.textContent = texto;
+  return nodo;
+}
+function boton(texto,accion) {
+  const b = elemento("button",texto);
+  b.type = "button";
+  b.className = "secundario";
+  b.addEventListener("click",accion);
+  return b;
+}
+function limpiarFormulario() {
+  editando = null;
+  $("formulario").reset();
+  $("codigo").readOnly = false;
+  $("tituloFormulario").textContent = "Agregar producto";
+  $("cancelar").hidden = true;
+}
+function editar(p) {
+  editando = p.codigo;
+  $("codigo").value = p.codigo;
+  $("codigo").readOnly = true;
+  $("nombre").value = p.nombre;
+  $("costo").value = (p.costo / 100).toFixed(2);
+  $("precio").value = (p.precio / 100).toFixed(2);
+  $("existencia").value = (p.stock / 100).toFixed(2);
+  $("tituloFormulario").textContent = "Editar producto";
+  $("cancelar").hidden = false;
+  $("formulario").scrollIntoView({behavior:"smooth"});
+}
+function mostrarCatalogo() {
+  $("catalogo").replaceChildren();
+  const consulta = normalizar($("buscar").value.trim());
+  const resultados = estado.productos.filter(p =>
+    normalizar(p.codigo + " " + p.nombre).includes(consulta)
   );
-  campo("lista").replaceChildren();
   if (!resultados.length) {
-    campo("lista").textContent = "No hay productos para mostrar.";
+    $("catalogo").append(elemento("p","No hay productos para mostrar."));
   }
   resultados.forEach(p => {
-    const tarjeta = document.createElement("div");
-    tarjeta.className = "producto";
-    const titulo = document.createElement("h3");
-    titulo.textContent = p.nombre;
-    tarjeta.append(titulo);
-    [
-      "Código: " + p.codigo,
-      "Costo: " + dinero(p.costo),
-      "Precio de venta: " + dinero(p.precio),
-      "Disponible: " + p.cantidad
-    ].forEach(texto => {
-      const linea = document.createElement("p");
-      linea.textContent = texto;
-      tarjeta.append(linea);
-    });
-    campo("lista").append(tarjeta);
+    const fila = elemento("div","");
+    fila.className = "fila";
+    fila.append(elemento("h3",p.nombre));
+    fila.append(elemento("p","Código: " + p.codigo));
+    fila.append(elemento("p","Costo: " + dinero(p.costo)));
+    fila.append(elemento("p","Precio: " + dinero(p.precio)));
+    fila.append(elemento("p","Disponible: " + unidades(p.stock)));
+    fila.append(boton("Editar producto",() => editar(p)));
+    $("catalogo").append(fila);
+  });
+  const seleccionado = $("productoVenta").value;
+  $("productoVenta").replaceChildren();
+  const vacio = elemento("option","Selecciona un producto");
+  vacio.value = "";
+  $("productoVenta").append(vacio);
+  estado.productos.forEach(p => {
+    const op = elemento("option",
+      p.codigo + " · " + p.nombre + " · " + dinero(p.precio)
+    );
+    op.value = p.codigo;
+    $("productoVenta").append(op);
+  });
+  $("productoVenta").value = seleccionado;
+}
+function lineasVenta() {
+  return carrito.map(item => {
+    const p = estado.productos.find(p => p.codigo === item.codigo);
+    return {
+      codigo:p.codigo, nombre:p.nombre,
+      cantidad:item.cantidad, precio:p.precio,
+      subtotal:Math.round(p.precio * item.cantidad / 100)
+    };
   });
 }
-campo("formulario").addEventListener("submit", evento => {
-  evento.preventDefault();
-  const producto = {
-    codigo: campo("codigo").value.trim(),
-    nombre: campo("nombre").value.trim(),
-    costo: Number(campo("costo").value),
-    precio: Number(campo("precio").value),
-    cantidad: Number(campo("cantidad").value)
+function mostrarCarrito() {
+  $("carrito").replaceChildren();
+  const lineas = lineasVenta();
+  lineas.forEach(l => {
+    const fila = elemento("div","");
+    fila.className = "fila";
+    fila.append(elemento("h3",l.nombre));
+    fila.append(elemento("p",
+      unidades(l.cantidad) + " × " + dinero(l.precio) +
+      " = " + dinero(l.subtotal)
+    ));
+    fila.append(boton("Quitar",() => {
+      carrito = carrito.filter(i => i.codigo !== l.codigo);
+      mostrarCarrito();
+    }));
+    $("carrito").append(fila);
+  });
+  if (!lineas.length) {
+    $("carrito").append(elemento("p","La venta está vacía."));
+  }
+  $("total").textContent = "Total: " +
+    dinero(lineas.reduce((s,l) => s + l.subtotal,0));
+  $("guardarVenta").disabled = !lineas.length || !lecturaCorrecta;
+}
+function mostrarHistorial() {
+  $("historial").replaceChildren();
+  if (!estado.ventas.length) {
+    $("historial").append(elemento("p","Todavía no hay ventas."));
+  }
+  [...estado.ventas].reverse().forEach(v => {
+    const fila = elemento("div","");
+    fila.className = "fila";
+    fila.append(elemento("h3","Venta de prueba #" + v.numero));
+    fila.append(elemento("p",new Date(v.fecha).toLocaleString("es-DO")));
+    v.lineas.forEach(l => fila.append(elemento("p",
+      l.nombre + " · " + unidades(l.cantidad) +
+      " × " + dinero(l.precio) + " = " + dinero(l.subtotal)
+    )));
+    fila.append(elemento("p","Pago: " + v.pago));
+    fila.append(elemento("strong","Total: " + dinero(v.total)));
+    $("historial").append(fila);
+  });
+}
+function mostrarTodo() {
+  mostrarCatalogo();
+  mostrarCarrito();
+  mostrarHistorial();
+}
+$("formulario").addEventListener("submit",e => {
+  e.preventDefault();
+  const p = {
+    codigo:$("codigo").value.trim(),
+    nombre:$("nombre").value.trim(),
+    costo:convertir($("costo").value),
+    precio:convertir($("precio").value),
+    stock:convertir($("existencia").value)
   };
-  if (!producto.codigo || !producto.nombre) {
-    campo("mensaje").textContent = "Escribe el código y el nombre.";
+  if (!productoValido(p)) {
+    avisar("Revisa el nombre, código y cantidades.");
     return;
   }
-  if (productos.some(p =>
-    p.codigo.toLowerCase() === producto.codigo.toLowerCase()
-  )) {
-    campo("mensaje").textContent = "Ese código ya existe.";
+  const repetido = estado.productos.some(x =>
+    x.codigo.toLowerCase() === p.codigo.toLowerCase() &&
+    x.codigo !== editando
+  );
+  if (repetido) {
+    avisar("Ese código ya existe.");
     return;
   }
-  const nuevos = [...productos, producto];
-  try {
-    localStorage.setItem(clave, JSON.stringify(nuevos));
-    productos = nuevos;
-    campo("formulario").reset();
-    campo("mensaje").textContent = "Producto guardado.";
-    mostrar();
-  } catch {
-    campo("mensaje").textContent = "No se pudo guardar. Revisa el almacenamiento del navegador.";
+  const productos = editando === null ?
+    [...estado.productos,p] :
+    estado.productos.map(x => x.codigo === editando ? p : x);
+  if (guardar({...estado,productos})) {
+    limpiarFormulario();
+    mostrarTodo();
+    avisar("Producto guardado.");
   }
 });
-campo("buscar").addEventListener("input", mostrar);
-mostrar();
+$("cancelar").addEventListener("click",limpiarFormulario);
+$("buscar").addEventListener("input",mostrarCatalogo);
+$("agregarVenta").addEventListener("submit",e => {
+  e.preventDefault();
+  const p = estado.productos.find(
+    p => p.codigo === $("productoVenta").value
+  );
+  const cantidad = convertir($("cantidadVenta").value);
+  if (!p || !valido(cantidad) || cantidad === 0) {
+    avisar("Selecciona un producto y una cantidad válida.");
+    return;
+  }
+  const existente = carrito.find(i => i.codigo === p.codigo);
+  const acumulada = cantidad + (existente ? existente.cantidad : 0);
+  if (acumulada > p.stock) {
+    avisar("Inventario insuficiente. Disponible: " + unidades(p.stock));
+    return;
+  }
+  if (existente) existente.cantidad = acumulada;
+  else carrito.push({codigo:p.codigo,cantidad});
+  mostrarCarrito();
+  avisar("Producto agregado a la venta.");
+});
+$("vaciar").addEventListener("click",() => {
+  carrito = [];
+  mostrarCarrito();
+  avisar("Venta vaciada.");
+});
+$("guardarVenta").addEventListener("click",() => {
+  if (!carrito.length) return;
+  for (const item of carrito) {
+    const p = estado.productos.find(p => p.codigo === item.codigo);
+    if (!p || item.cantidad > p.stock) {
+      avisar("Revisa el inventario antes de guardar la venta.");
+      return;
+    }
+  }
+  const lineas = lineasVenta();
+  const total = lineas.reduce((s,l) => s + l.subtotal,0);
+  if (!Number.isSafeInteger(total)) {
+    avisar("El total supera el límite permitido.");
+    return;
+  }
+  const venta = {
+    numero:estado.ventas.length + 1,
+    fecha:new Date().toISOString(),
+    pago:$("pago").value, lineas, total
+  };
+  const productos = estado.productos.map(p => {
+    const item = carrito.find(i => i.codigo === p.codigo);
+    return {...p,stock:p.stock - (item ? item.cantidad : 0)};
+  });
+  if (guardar({productos,ventas:[...estado.ventas,venta]})) {
+    carrito = [];
+    limpiarFormulario();
+    mostrarTodo();
+    avisar("Venta #" + venta.numero +
+      " guardada. Inventario actualizado.");
+  }
+});
+mostrarTodo();
 </script>
 </body>
 </html>
