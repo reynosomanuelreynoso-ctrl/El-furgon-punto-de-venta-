@@ -1002,5 +1002,199 @@ mostrarTodo();
   actualizarCambio();
 })();
 </script>
+  <script>
+(() => {
+  if (document.getElementById("resumenDiario")) return;
+
+  const seccion = document.createElement("section");
+  seccion.id = "resumenDiario";
+
+  function crear(tipo, texto) {
+    const nodo = document.createElement(tipo);
+    if (texto !== undefined) nodo.textContent = texto;
+    return nodo;
+  }
+
+  function fechaLocal(valor) {
+    const fecha = new Date(valor);
+    if (!Number.isFinite(fecha.getTime())) return "";
+
+    return fecha.getFullYear() + "-" +
+      String(fecha.getMonth() + 1).padStart(2, "0") + "-" +
+      String(fecha.getDate()).padStart(2, "0");
+  }
+
+  const titulo = crear("h2", "Resumen diario de ventas");
+
+  const etiqueta = crear("label", "Fecha que deseas consultar");
+  etiqueta.htmlFor = "fechaResumen";
+
+  const fecha = crear("input");
+  fecha.id = "fechaResumen";
+  fecha.type = "date";
+  fecha.value = fechaLocal(new Date());
+
+  const hoy = crear("button", "Ver hoy");
+  hoy.type = "button";
+  hoy.className = "secundario";
+
+  const contenido = crear("div");
+  contenido.setAttribute("aria-live", "polite");
+
+  const nota = crear("small",
+    "Incluye las ventas guardadas en este navegador. " +
+    "El total vendido no representa la ganancia ni el dinero " +
+    "disponible en caja."
+  );
+
+  seccion.append(titulo, etiqueta, fecha, hoy, contenido, nota);
+
+  const historial = $("historial").closest("section");
+  historial.before(seccion);
+
+  function actualizarResumen() {
+    contenido.replaceChildren();
+
+    if (!fecha.value) {
+      contenido.append(crear("p", "Selecciona una fecha."));
+      return;
+    }
+
+    const ventas = estado.ventas.filter(
+      venta => fechaLocal(venta.fecha) === fecha.value
+    );
+
+    const pagos = {
+      Efectivo: 0,
+      Transferencia: 0,
+      Tarjeta: 0
+    };
+
+    let total = 0;
+    const productos = new Map();
+
+    for (const venta of ventas) {
+      if (
+        !Number.isSafeInteger(venta.total) ||
+        venta.total < 0 ||
+        !Object.hasOwn(pagos, venta.pago) ||
+        !Array.isArray(venta.lineas)
+      ) {
+        contenido.append(crear("p",
+          "Hay una venta con datos inválidos. " +
+          "Revisa el historial antes de usar este resumen."
+        ));
+        return;
+      }
+
+      total += venta.total;
+      pagos[venta.pago] += venta.total;
+
+      for (const linea of venta.lineas) {
+        if (
+          !Number.isSafeInteger(linea.cantidad) ||
+          linea.cantidad <= 0 ||
+          !Number.isSafeInteger(linea.subtotal) ||
+          linea.subtotal < 0
+        ) {
+          contenido.append(crear("p",
+            "Hay un detalle de venta inválido."
+          ));
+          return;
+        }
+
+        const acumulado = productos.get(linea.codigo) || {
+          codigo: linea.codigo,
+          nombre: linea.nombre,
+          cantidad: 0,
+          importe: 0
+        };
+
+        acumulado.cantidad += linea.cantidad;
+        acumulado.importe += linea.subtotal;
+        productos.set(linea.codigo, acumulado);
+      }
+    }
+
+    const cifras = [
+      total,
+      ...Object.values(pagos),
+      ...[...productos.values()].flatMap(
+        producto => [producto.cantidad, producto.importe]
+      )
+    ];
+
+    if (!cifras.every(Number.isSafeInteger)) {
+      contenido.append(crear("p",
+        "Las cifras superan el límite del resumen."
+      ));
+      return;
+    }
+
+    const totalTexto = crear("p", "Total vendido: " + dinero(total));
+    totalTexto.className = "total";
+
+    contenido.append(
+      totalTexto,
+      crear("p", "Ventas realizadas: " + ventas.length),
+      crear("h3", "Cobros por forma de pago")
+    );
+
+    for (const [forma, monto] of Object.entries(pagos)) {
+      contenido.append(crear("p", forma + ": " + dinero(monto)));
+    }
+
+    if (!ventas.length) {
+      contenido.append(crear("p",
+        "No hay ventas registradas para esta fecha."
+      ));
+      return;
+    }
+
+    contenido.append(crear("h3",
+      "Los 5 productos más vendidos por cantidad"
+    ));
+
+    const destacados = [...productos.values()]
+      .sort((a, b) =>
+        b.cantidad - a.cantidad || b.importe - a.importe
+      )
+      .slice(0, 5);
+
+    destacados.forEach((producto, indice) => {
+      const fila = crear("div");
+      fila.className = "fila";
+
+      fila.append(
+        crear("strong",
+          (indice + 1) + ". " + producto.nombre
+        ),
+        crear("p", "Código: " + producto.codigo),
+        crear("p",
+          "Cantidad vendida: " + unidades(producto.cantidad)
+        ),
+        crear("p", "Importe: " + dinero(producto.importe))
+      );
+
+      contenido.append(fila);
+    });
+  }
+
+  fecha.addEventListener("change", actualizarResumen);
+
+  hoy.addEventListener("click", () => {
+    fecha.value = fechaLocal(new Date());
+    actualizarResumen();
+  });
+
+  const historialAnterior = mostrarHistorial;
+  mostrarHistorial = function() {
+    historialAnterior();
+    actualizarResumen();
+  };
+
+  actualizarResumen();
+})();
+</script>
 </body>
 </html>
