@@ -1443,7 +1443,136 @@ const respuesta = productoEditadoNube
       guardarNube.disabled = false;
     }
   });
+  const formMovimiento = document.createElement("form");
+  formMovimiento.innerHTML = `
+    <h2>Entradas y ajustes de inventario</h2>
+    <fieldset id="camposMovimiento">
+      <button id="cargarMovimiento" type="button" class="secundario">
+        Cargar productos para movimiento
+      </button>
+      <label>Producto
+        <select id="productoMovimiento" required>
+          <option value="">Primero carga los productos</option>
+        </select>
+      </label>
+      <label>Tipo de movimiento
+        <select id="tipoMovimiento">
+          <option value="entrada">Entrada de mercancía</option>
+          <option value="ajuste">Ajuste de inventario</option>
+        </select>
+      </label>
+      <label>Cantidad que se suma o se resta
+        <input id="cantidadMovimiento" type="number"
+          min="-99999999" max="99999999" step="0.01" required>
+      </label>
+      <p>Ejemplo: 5 suma cinco unidades; -2 resta dos.
+        Para una entrada usa una cantidad positiva.</p>
+      <label>Motivo o referencia
+        <input id="motivoMovimiento" minlength="3"
+          maxlength="200" required>
+      </label>
+    </fieldset>
+    <button id="guardarMovimiento" type="submit">
+      Registrar movimiento
+    </button>
+    <p id="estadoMovimiento" role="status"></p>
+  `;
+  nube.append(formMovimiento);
 
+  const camposMovimiento = obtener("camposMovimiento");
+  const guardarMovimiento = obtener("guardarMovimiento");
+  const estadoMovimiento = obtener("estadoMovimiento");
+  let movimientoPendiente = null;
+  let usuarioMovimiento = null;
+
+  obtener("cargarMovimiento").addEventListener("click", async () => {
+    const boton = obtener("cargarMovimiento");
+    boton.disabled = true;
+    try {
+      const respuesta = await cliente.from("pdv_productos")
+        .select("id,codigo,nombre")
+        .eq("activo", true).order("codigo").limit(100);
+      if (respuesta.error) throw respuesta.error;
+      const selector = obtener("productoMovimiento");
+      selector.replaceChildren(new Option("Selecciona un producto", ""));
+      for (const producto of respuesta.data) {
+        selector.add(new Option(
+          producto.codigo + " · " + producto.nombre, producto.id
+        ));
+      }
+      estadoMovimiento.textContent = "Lista cargada: hasta 100 productos.";
+    } catch (error) {
+      estadoMovimiento.textContent = "No se pudo cargar: " + error.message;
+    } finally {
+      boton.disabled = false;
+    }
+  });
+
+  formMovimiento.addEventListener("submit", async evento => {
+    evento.preventDefault();
+    if (guardarMovimiento.disabled) return;
+    guardarMovimiento.disabled = true;
+    try {
+      const cuenta = await cliente.auth.getUser();
+      if (cuenta.error) throw cuenta.error;
+      if (!cuenta.data.user) throw new Error("Inicia sesión primero.");
+
+      if (!movimientoPendiente) {
+        const cantidad = Math.round(
+          Number(obtener("cantidadMovimiento").value) * 100
+        );
+        const tipo = obtener("tipoMovimiento").value;
+        const motivo = obtener("motivoMovimiento").value.trim();
+        if (!Number.isSafeInteger(cantidad) || cantidad === 0 ||
+            Math.abs(cantidad) > 9999999900 || motivo.length < 3 ||
+            (tipo === "entrada" && cantidad < 0)) {
+          throw new Error("Revisa la cantidad y el motivo.");
+        }
+        movimientoPendiente = {
+          p_solicitud: crypto.randomUUID(),
+          p_producto: obtener("productoMovimiento").value,
+          p_tipo: tipo,
+          p_cantidad: cantidad,
+          p_motivo: motivo
+        };
+        usuarioMovimiento = cuenta.data.user.id;
+      }
+
+      if (cuenta.data.user.id !== usuarioMovimiento) {
+        throw new Error("Vuelve a la cuenta que inició este movimiento.");
+      }
+
+      camposMovimiento.disabled = true;
+      estadoMovimiento.textContent = "Registrando movimiento...";
+      const respuesta = await cliente.rpc(
+        "pdv_mover_inventario", movimientoPendiente
+      );
+      if (respuesta.error) {
+        if (["P0001", "23514", "23503", "23505", "42501", "22P02"]
+            .includes(respuesta.error.code)) {
+          movimientoPendiente = null;
+          camposMovimiento.disabled = false;
+        }
+        throw respuesta.error;
+      }
+
+      movimientoPendiente = null;
+      camposMovimiento.disabled = false;
+      formMovimiento.reset();
+      guardarMovimiento.textContent = "Registrar movimiento";
+      estadoMovimiento.textContent = "Movimiento guardado en Supabase.";
+      await cargarNube();
+    } catch (error) {
+      estadoMovimiento.textContent = movimientoPendiente
+        ? "No se confirmó el resultado. Reintenta con este botón; " +
+          "se usará la misma solicitud. " + error.message
+        : "No se registró el movimiento: " + error.message;
+      guardarMovimiento.textContent = movimientoPendiente
+        ? "Reintentar el mismo movimiento" : "Registrar movimiento";
+    } finally {
+      guardarMovimiento.disabled = false;
+    }
+  });
   obtener("consultarNube").addEventListener(
     "click", cargarNube
   );
