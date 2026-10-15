@@ -1352,6 +1352,51 @@ formNube.append(cancelarNube);
       for (const producto of productos) {
         const fila = document.createElement("div");
         fila.className = "fila";
+                const nombre = document.createElement("h3");
+        nombre.textContent = producto.codigo + " · " + producto.nombre;
+
+        const detalle = document.createElement("p");
+        detalle.textContent = "Precio: " + dinero(producto.precio) +
+          " · Disponible: " + unidades(producto.stock);
+
+        const datosCosto = Array.isArray(producto.pdv_costos)
+          ? producto.pdv_costos[0] : producto.pdv_costos;
+        const costo = document.createElement("p");
+        costo.textContent = datosCosto
+          ? "Costo: " + dinero(datosCosto.costo) : "Costo pendiente.";
+
+        const editarNube = document.createElement("button");
+        editarNube.type = "button";
+        editarNube.className = "secundario";
+        editarNube.textContent = "Editar producto";
+        editarNube.addEventListener("click", () => {
+          if (guardarNube.disabled) return;
+          productoEditadoNube = producto.id;
+          obtener("codigoNube").value = producto.codigo;
+          obtener("codigoNube").readOnly = true;
+          obtener("nombreNube").value = producto.nombre;
+          obtener("precioNube").value = (producto.precio / 100).toFixed(2);
+          obtener("stockNube").value = (producto.stock / 100).toFixed(2);
+          obtener("stockNube").disabled = true;
+          obtener("costoNube").value = datosCosto
+            ? (datosCosto.costo / 100).toFixed(2) : "";
+          guardarNube.textContent = "Guardar cambios en Supabase";
+          mensajeNube.textContent = "Editando " + producto.codigo +
+            ". La existencia se conserva.";
+          formNube.scrollIntoView({behavior: "smooth"});
+          obtener("nombreNube").focus();
+        });
+
+        fila.append(nombre, detalle, costo, editarNube);
+        listaNube.append(fila);
+      }
+    } catch (error) {
+      if (revision !== revisionNube) return;
+      nube.hidden = false;
+      mensajeNube.textContent =
+        "No se pudo consultar el catálogo: " + error.message;
+    }
+  }
 
 
   formNube.addEventListener("submit", async evento => {
