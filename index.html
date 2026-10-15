@@ -1478,6 +1478,103 @@ const respuesta = productoEditadoNube
     <p id="estadoMovimiento" role="status"></p>
   `;
   nube.append(formMovimiento);
+    const panelMovimientos = document.createElement("div");
+  panelMovimientos.innerHTML = `
+    <h2>Historial de inventario</h2>
+    <button id="verMovimientos" type="button" class="secundario">
+      Consultar / Actualizar historial
+    </button>
+    <p id="mensajeHistorialInventario" role="status"></p>
+    <div id="listaMovimientos"></div>
+  `;
+  nube.append(panelMovimientos);
+
+  const verMovimientos = obtener("verMovimientos");
+  const mensajeHistorialInventario = obtener("mensajeHistorialInventario");
+  const listaMovimientos = obtener("listaMovimientos");
+  let revisionMovimientos = 0;
+
+  cliente.auth.onAuthStateChange(() => {
+    ++revisionMovimientos;
+    listaMovimientos.replaceChildren();
+    mensajeHistorialInventario.textContent = "";
+    verMovimientos.disabled = false;
+  });
+
+  verMovimientos.addEventListener("click", async () => {
+    const revision = ++revisionMovimientos;
+    verMovimientos.disabled = true;
+    listaMovimientos.replaceChildren();
+    mensajeHistorialInventario.textContent = "Consultando movimientos...";
+    try {
+      const cuenta = await cliente.auth.getUser();
+      if (cuenta.error) throw cuenta.error;
+      if (!cuenta.data.user) throw new Error("Inicia sesión primero.");
+
+      const perfil = await cliente.from("pdv_perfiles")
+        .select("rol,activo")
+        .eq("usuario_id", cuenta.data.user.id).maybeSingle();
+      if (perfil.error) throw perfil.error;
+      if (!perfil.data?.activo || perfil.data.rol !== "administrador") {
+        throw new Error("Solo un administrador activo puede ver el historial.");
+      }
+
+      const respuesta = await cliente.from("pdv_movimientos_inventario")
+        .select("id,usuario_id,tipo,cantidad,existencia_anterior,existencia_nueva,motivo,creado_en,pdv_productos(codigo,nombre)")
+        .order("creado_en", {ascending: false})
+        .order("id", {ascending: false}).limit(50);
+      if (respuesta.error) throw respuesta.error;
+
+      const movimientos = respuesta.data;
+      const responsables = new Map();
+      const usuarios = [...new Set(movimientos.map(m => m.usuario_id))];
+      if (usuarios.length) {
+        const perfiles = await cliente.from("pdv_perfiles")
+          .select("usuario_id,nombre").in("usuario_id", usuarios);
+        if (perfiles.error) throw perfiles.error;
+        for (const persona of perfiles.data) {
+          responsables.set(persona.usuario_id, persona.nombre);
+        }
+      }
+      if (revision !== revisionMovimientos) return;
+
+      for (const movimiento of movimientos) {
+        const producto = Array.isArray(movimiento.pdv_productos)
+          ? movimiento.pdv_productos[0] : movimiento.pdv_productos;
+        const fila = document.createElement("div");
+        fila.className = "fila";
+        const agregar = (tipo, texto) => {
+          const nodo = document.createElement(tipo);
+          nodo.textContent = texto;
+          fila.append(nodo);
+        };
+        agregar("h3", producto
+          ? producto.codigo + " · " + producto.nombre
+          : "Producto no disponible");
+        agregar("p", new Date(movimiento.creado_en).toLocaleString(
+          "es-DO", {timeZone: "America/Santo_Domingo"}
+        ));
+        agregar("p", "Tipo: " + movimiento.tipo + " · Cantidad: " +
+          (movimiento.cantidad > 0 ? "+" : "") + unidades(movimiento.cantidad));
+        agregar("p", "Existencia: " + unidades(movimiento.existencia_anterior) +
+          " → " + unidades(movimiento.existencia_nueva));
+        agregar("p", "Motivo: " + movimiento.motivo);
+        agregar("p", "Responsable: " +
+          (responsables.get(movimiento.usuario_id) || movimiento.usuario_id));
+        listaMovimientos.append(fila);
+      }
+      mensajeHistorialInventario.textContent = movimientos.length
+        ? "Últimos " + movimientos.length + " movimientos (máximo 50)."
+        : "Todavía no hay movimientos registrados.";
+    } catch (error) {
+      if (revision !== revisionMovimientos) return;
+      listaMovimientos.replaceChildren();
+      mensajeHistorialInventario.textContent =
+        "No se pudo consultar el historial: " + error.message;
+    } finally {
+      if (revision === revisionMovimientos) verMovimientos.disabled = false;
+    }
+  });
 
   const camposMovimiento = obtener("camposMovimiento");
   const guardarMovimiento = obtener("guardarMovimiento");
