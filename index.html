@@ -1292,6 +1292,22 @@ mostrarTodo();
   const listaNube = obtener("listaNube");
   const guardarNube = obtener("guardarNube");
   let revisionNube = 0;
+  let productoEditadoNube = null;
+
+function cancelarEdicionNube() {
+  productoEditadoNube = null;
+  formNube.reset();
+  obtener("codigoNube").readOnly = false;
+  obtener("stockNube").disabled = false;
+  guardarNube.textContent = "Guardar producto en Supabase";
+}
+
+const cancelarNube = document.createElement("button");
+cancelarNube.type = "button";
+cancelarNube.className = "secundario";
+cancelarNube.textContent = "Limpiar / Cancelar edición";
+cancelarNube.addEventListener("click", cancelarEdicionNube);
+formNube.append(cancelarNube);
 
   function limpiarNube() {
     nube.hidden = true;
