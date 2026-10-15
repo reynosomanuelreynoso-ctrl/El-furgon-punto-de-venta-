@@ -1488,6 +1488,193 @@ const respuesta = productoEditadoNube
     <div id="listaMovimientos"></div>
   `;
   nube.append(panelMovimientos);
+    const formVentaNube = document.createElement("form");
+  formVentaNube.innerHTML = `
+    <h2>Venta en la nube · Prueba</h2>
+    <fieldset id="camposCobroNube">
+      <button id="cargarVentaNube" type="button" class="secundario">
+        Cargar productos para vender
+      </button>
+      <label>Producto
+        <select id="productoCobroNube">
+          <option value="">Carga los productos primero</option>
+        </select>
+      </label>
+      <label>Cantidad
+        <input id="cantidadCobroNube" type="number"
+          min="0.01" max="99999999" step="0.01" value="1">
+      </label>
+      <button id="agregarCobroNube" type="button">
+        Agregar a esta venta
+      </button>
+      <div id="carritoCobroNube"></div>
+      <p id="totalCobroNube" class="total"></p>
+      <label>Forma de pago
+        <select id="pagoCobroNube">
+          <option>Efectivo</option>
+          <option>Transferencia</option>
+          <option>Tarjeta</option>
+        </select>
+      </label>
+      <label id="bloqueRecibidoNube">Efectivo recibido en RD$
+        <input id="recibidoCobroNube" type="number"
+          min="0" max="99999999" step="0.01">
+      </label>
+      <p id="cambioCobroNube"></p>
+    </fieldset>
+    <button id="guardarVentaNube" type="submit" disabled>
+      Cobrar venta en Supabase
+    </button>
+    <p id="mensajeVentaNube" role="status"></p>
+    <div id="reciboVentaNube"></div>
+  `;
+  nube.append(formVentaNube);
+
+  const camposCobroNube = obtener("camposCobroNube");
+  const guardarVentaNube = obtener("guardarVentaNube");
+  const mensajeVentaNube = obtener("mensajeVentaNube");
+  const reciboVentaNube = obtener("reciboVentaNube");
+  let productosVentaNube = [];
+  let carritoVentaNube = [];
+  let propietarioVentaNube = null;
+  let revisionVentaNube = 0;
+  let cobroNubePreparado = false;
+  let cobrandoVentaNube = false;
+
+  function totalVentaNube() {
+    let total = 0n;
+    for (const linea of carritoVentaNube) {
+      total += (BigInt(linea.precio) * BigInt(linea.cantidad) + 50n) / 100n;
+    }
+    if (total > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("El total supera el límite permitido.");
+    }
+    return Number(total);
+  }
+
+  function actualizarVentaNube() {
+    const lista = obtener("carritoCobroNube");
+    lista.replaceChildren();
+    for (const linea of carritoVentaNube) {
+      const fila = document.createElement("div");
+      fila.className = "fila";
+      const texto = document.createElement("p");
+      texto.textContent = linea.codigo + " · " + linea.nombre +
+        " · " + unidades(linea.cantidad) + " × " + dinero(linea.precio);
+      const quitar = document.createElement("button");
+      quitar.type = "button";
+      quitar.className = "secundario";
+      quitar.textContent = "Quitar de esta venta";
+      quitar.addEventListener("click", () => {
+        carritoVentaNube = carritoVentaNube.filter(x => x.id !== linea.id);
+        actualizarVentaNube();
+      });
+      fila.append(texto, quitar);
+      lista.append(fila);
+    }
+    const total = totalVentaNube();
+    obtener("totalCobroNube").textContent = "Total estimado: " + dinero(total);
+    const efectivo = obtener("pagoCobroNube").value === "Efectivo";
+    obtener("bloqueRecibidoNube").hidden = !efectivo;
+    obtener("recibidoCobroNube").disabled = !efectivo;
+    const campo = obtener("recibidoCobroNube");
+    const recibido = Math.round(Number(campo.value) * 100);
+    obtener("cambioCobroNube").textContent =
+      !efectivo || !carritoVentaNube.length ? "" :
+      campo.value === "" || !campo.validity.valid
+        ? "Escribe el efectivo recibido."
+        : recibido < total ? "Faltan: " + dinero(total - recibido)
+        : "Cambio estimado: " + dinero(recibido - total);
+    guardarVentaNube.disabled = !cobroNubePreparado ||
+      cobrandoVentaNube || !carritoVentaNube.length;
+  }
+
+  obtener("cargarVentaNube").addEventListener("click", async () => {
+    const revision = ++revisionVentaNube;
+    const boton = obtener("cargarVentaNube");
+    boton.disabled = true;
+    try {
+      const cuenta = await cliente.auth.getUser();
+      if (cuenta.error) throw cuenta.error;
+      if (!cuenta.data.user) throw new Error("Inicia sesión primero.");
+      const respuesta = await cliente.from("pdv_productos")
+        .select("id,codigo,nombre,precio,stock")
+        .eq("activo", true).order("codigo").limit(100);
+      if (respuesta.error) throw respuesta.error;
+      if (revision !== revisionVentaNube) return;
+      productosVentaNube = respuesta.data;
+      propietarioVentaNube = cuenta.data.user.id;
+      const selector = obtener("productoCobroNube");
+      selector.replaceChildren(new Option("Selecciona un producto", ""));
+      for (const producto of productosVentaNube) {
+        selector.add(new Option(producto.codigo + " · " + producto.nombre +
+          " · " + dinero(producto.precio) +
+          " · Disponible: " + unidades(producto.stock), producto.id));
+      }
+      mensajeVentaNube.textContent = "Productos cargados (hasta 100).";
+    } catch (error) {
+      if (revision === revisionVentaNube) mensajeVentaNube.textContent = error.message;
+    } finally {
+      boton.disabled = false;
+    }
+  });
+
+  obtener("agregarCobroNube").addEventListener("click", () => {
+    try {
+      const producto = productosVentaNube.find(
+        p => p.id === obtener("productoCobroNube").value
+      );
+      const campo = obtener("cantidadCobroNube");
+      const cantidad = Math.round(Number(campo.value) * 100);
+      if (!producto || campo.value === "" || !campo.validity.valid ||
+          !Number.isSafeInteger(cantidad) || cantidad <= 0) {
+        throw new Error("Selecciona un producto y una cantidad válida.");
+      }
+      const anterior = carritoVentaNube.find(x => x.id === producto.id);
+      const acumulada = cantidad + (anterior ? anterior.cantidad : 0);
+      if (acumulada > producto.stock) {
+        throw new Error("La cantidad supera la existencia de la lista cargada.");
+      }
+      const candidata = {...producto, cantidad: acumulada};
+      const subtotal = (BigInt(candidata.precio) * BigInt(acumulada) + 50n) / 100n;
+      const otros = carritoVentaNube.filter(x => x.id !== producto.id);
+      const sumaOtros = otros.reduce((s, x) =>
+        s + (BigInt(x.precio) * BigInt(x.cantidad) + 50n) / 100n, 0n);
+      if (sumaOtros + subtotal > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error("El total supera el límite permitido.");
+      }
+      carritoVentaNube = [...otros, candidata];
+      actualizarVentaNube();
+      mensajeVentaNube.textContent = "Producto agregado a esta venta.";
+    } catch (error) {
+      mensajeVentaNube.textContent = error.message;
+    }
+  });
+
+  obtener("recibidoCobroNube").addEventListener("input", actualizarVentaNube);
+  obtener("pagoCobroNube").addEventListener("change", () => {
+    obtener("recibidoCobroNube").value = "";
+    actualizarVentaNube();
+  });
+  formVentaNube.addEventListener("submit", evento => evento.preventDefault());
+
+  cliente.auth.onAuthStateChange((evento, sesion) => {
+    if (evento === "SIGNED_OUT" ||
+        (propietarioVentaNube && sesion?.user.id !== propietarioVentaNube)) {
+      ++revisionVentaNube;
+      productosVentaNube = [];
+      carritoVentaNube = [];
+      propietarioVentaNube = null;
+      formVentaNube.reset();
+      obtener("productoCobroNube").replaceChildren(
+        new Option("Carga los productos primero", "")
+      );
+      reciboVentaNube.replaceChildren();
+      mensajeVentaNube.textContent = "";
+      actualizarVentaNube();
+    }
+  });
+  actualizarVentaNube();
 
   const verMovimientos = obtener("verMovimientos");
   const mensajeHistorialInventario = obtener("mensajeHistorialInventario");
