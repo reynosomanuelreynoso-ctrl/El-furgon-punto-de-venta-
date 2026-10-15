@@ -1656,7 +1656,157 @@ const respuesta = productoEditadoNube
     obtener("recibidoCobroNube").value = "";
     actualizarVentaNube();
   });
-  formVentaNube.addEventListener("submit", evento => evento.preventDefault());
+    const claveCobroPendiente = "furgon-cobro-nube-v1";
+  const recuperarCobroNube = document.createElement("button");
+  recuperarCobroNube.type = "button";
+  recuperarCobroNube.className = "secundario";
+  recuperarCobroNube.textContent = "Recuperar cobro pendiente";
+  formVentaNube.append(recuperarCobroNube);
+
+  function leerCobroPendiente() {
+    const texto = sessionStorage.getItem(claveCobroPendiente);
+    if (!texto) return null;
+    const registro = JSON.parse(texto);
+    if (!registro.usuario || !registro.datos?.p_solicitud ||
+        !Array.isArray(registro.datos.p_lineas)) {
+      throw new Error("El cobro pendiente necesita revisión.");
+    }
+    return registro;
+  }
+
+  async function ejecutarCobroNube(soloRecuperar) {
+    if (cobrandoVentaNube) return;
+    cobrandoVentaNube = true;
+    const revision = revisionVentaNube;
+    guardarVentaNube.disabled = true;
+    recuperarCobroNube.disabled = true;
+    let pendiente = null;
+    let solicitudNueva = false;
+    try {
+      const cuenta = await cliente.auth.getUser();
+      if (cuenta.error) throw cuenta.error;
+      if (!cuenta.data.user) throw new Error("Inicia sesión primero.");
+      if (revision !== revisionVentaNube) return;
+      const usuario = cuenta.data.user.id;
+      pendiente = leerCobroPendiente();
+
+      if (pendiente && pendiente.usuario !== usuario) {
+        throw new Error("Vuelve a la cuenta que inició el cobro pendiente.");
+      }
+
+      if (!pendiente) {
+        if (soloRecuperar) throw new Error("No hay un cobro pendiente.");
+        if (!carritoVentaNube.length || propietarioVentaNube !== usuario) {
+          throw new Error("Carga los productos y prepara la venta con tu cuenta.");
+        }
+        const efectivo = obtener("pagoCobroNube").value === "Efectivo";
+        const campo = obtener("recibidoCobroNube");
+        const recibido = efectivo
+          ? Math.round(Number(campo.value) * 100) : null;
+        if (efectivo && (campo.value === "" || !campo.validity.valid ||
+            !Number.isSafeInteger(recibido) || recibido < totalVentaNube())) {
+          throw new Error("El efectivo recibido no alcanza o no es válido.");
+        }
+        pendiente = {
+          usuario,
+          datos: {
+            p_solicitud: crypto.randomUUID(),
+            p_lineas: carritoVentaNube.map(x => ({
+              producto_id: x.id, cantidad: x.cantidad
+            })),
+            p_forma_pago: obtener("pagoCobroNube").value,
+            p_recibido: recibido
+          }
+        };
+        sessionStorage.setItem(claveCobroPendiente, JSON.stringify(pendiente));
+        solicitudNueva = true;
+      }
+
+      camposCobroNube.disabled = true;
+      mensajeVentaNube.textContent = "Comprobando y guardando el cobro...";
+      const respuesta = await cliente.rpc("pdv_cobrar_venta", pendiente.datos);
+      if (respuesta.error) {
+        if (solicitudNueva && ["P0001", "23514", "23503", "23505", "42501", "22P02"]
+            .includes(respuesta.error.code) &&
+            respuesta.error.message !== "Esta solicitud ya corresponde a otra venta.") {
+          sessionStorage.removeItem(claveCobroPendiente);
+          pendiente = null;
+        }
+        throw respuesta.error;
+      }
+      if (respuesta.data !== pendiente.datos.p_solicitud) {
+        throw new Error("Hay que comprobar el resultado del cobro.");
+      }
+
+      const consulta = await cliente.from("pdv_ventas")
+        .select("id,numero,creado_en,forma_pago,total,recibido,cambio,pdv_venta_detalles(codigo,nombre,cantidad,precio,subtotal)")
+        .eq("id", pendiente.datos.p_solicitud).single();
+      if (consulta.error) throw consulta.error;
+      if (!consulta.data) throw new Error("No se pudo recuperar el comprobante.");
+
+      const actual = await cliente.auth.getUser();
+      if (actual.error) throw actual.error;
+      if (revision !== revisionVentaNube ||
+          actual.data.user?.id !== usuario) return;
+
+      const venta = consulta.data;
+      reciboVentaNube.replaceChildren();
+      const agregar = (tipo, texto) => {
+        const nodo = document.createElement(tipo);
+        nodo.textContent = texto;
+        reciboVentaNube.append(nodo);
+      };
+      agregar("h3", "Venta de prueba #" + venta.numero);
+      agregar("p", new Date(venta.creado_en).toLocaleString(
+        "es-DO", {timeZone: "America/Santo_Domingo"}
+      ));
+      for (const linea of venta.pdv_venta_detalles) {
+        agregar("p", linea.codigo + " · " + linea.nombre + " · " +
+          unidades(linea.cantidad) + " × " + dinero(linea.precio) +
+          " = " + dinero(linea.subtotal));
+      }
+      agregar("p", "Pago: " + venta.forma_pago);
+      agregar("p", "Total: " + dinero(venta.total));
+      agregar("p", "Recibido: " + dinero(venta.recibido));
+      agregar("p", "Cambio: " + dinero(venta.cambio));
+      agregar("small", "Comprobante de prueba sin validez fiscal.");
+
+      sessionStorage.removeItem(claveCobroPendiente);
+      pendiente = null;
+      carritoVentaNube = [];
+      productosVentaNube = [];
+      formVentaNube.reset();
+      obtener("productoCobroNube").replaceChildren(
+        new Option("Carga los productos primero", "")
+      );
+      mensajeVentaNube.textContent = "Venta guardada. Inventario actualizado.";
+      await cargarNube();
+    } catch (error) {
+      if (revision !== revisionVentaNube) return;
+      mensajeVentaNube.textContent = pendiente
+        ? "El cobro requiere comprobación. Pulsa Recuperar cobro pendiente " +
+          "para usar la misma solicitud. " + error.message
+        : error.message;
+    } finally {
+      cobrandoVentaNube = false;
+      recuperarCobroNube.disabled = false;
+      if (revision === revisionVentaNube) {
+        camposCobroNube.disabled = Boolean(pendiente);
+        actualizarVentaNube();
+        guardarVentaNube.textContent = pendiente
+          ? "Reintentar el mismo cobro" : "Cobrar venta en Supabase";
+        if (pendiente) guardarVentaNube.disabled = false;
+      }
+    }
+  }
+
+  formVentaNube.addEventListener("submit", evento => {
+    evento.preventDefault();
+    ejecutarCobroNube(false);
+  });
+  recuperarCobroNube.addEventListener("click", () => ejecutarCobroNube(true));
+  cobroNubePreparado = true;
+  actualizarVentaNube();
 
   cliente.auth.onAuthStateChange((evento, sesion) => {
     if (evento === "SIGNED_OUT" ||
